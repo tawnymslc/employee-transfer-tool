@@ -95,15 +95,31 @@ def transform_worker_to_payroll(worker: WorkerContract):
         work_location=worker.location
     )
 
+# Tracks how many times each employee has been sent to Payroll
+payroll_attempts = {}
+
 # MOCK SEND TO PAYROLL
 # Simulates sending transformed employee data to a downstream system
 # ------------------------------------------------------------------
 def send_to_payroll(employee: PayrollEmployee):
 
-    # Simulate a downstream failure for testing
-    if employee.department_code == "ENG":
+    employee_id = employee.employee_id
 
+    # Increase the attempt count for this employee
+    payroll_attempts[employee_id] = payroll_attempts.get(employee_id, 0) + 1
+    attempt = payroll_attempts[employee_id]
+
+    # Simulates a temporary failure that succeeds on retry
+    if employee_id == "WD-1002" and attempt == 1:
         raise Exception("503 Service Unavailable")
+
+    # Simulates a persistent failure
+    if employee_id == "WD-1003":
+        raise Exception("503 Service Unavailable")
+
+    # Bad request: do NOT retry
+    if employee_id == "WD-1004":
+        raise Exception("400 Bad Request")
 
     return True
 
@@ -119,7 +135,6 @@ def deliver_to_payroll(employee: PayrollEmployee):
     start_time = time.perf_counter()
 
     while attempts < max_attempts:
-
         attempts += 1
 
         try:
@@ -139,23 +154,33 @@ def deliver_to_payroll(employee: PayrollEmployee):
         
         except Exception as error:
 
-            if attempts == max_attempts:
+            error_message = str(error)
 
+            # Non-retryable error
+            if "400" in error_message:
                 latency_ms = round(
-                    (time.perf_counter() - start_time) * 1000,
-                    2
-                ) 
+                    (time.perf_counter() - start_time) * 1000, 2)
 
                 return {
                     "status": "failed",
                     "attempts": attempts,
-                    "error": str(error),
+                    "error": error_message,
                     "latency_ms": latency_ms
                 }
 
-# WORKDAY INTEGRATION LOG
+            if attempts == max_attempts:
+
+                latency_ms = round(
+                    (time.perf_counter() - start_time) * 1000, 2) 
+
+                return {
+                    "status": "failed",
+                    "attempts": attempts,
+                    "error": error_message,
+                    "latency_ms": latency_ms
+                }
+
 # Stores delivery results for observability and troubleshooting
-# ------------------------------------------------------------------
 integration_log = []
 
 
