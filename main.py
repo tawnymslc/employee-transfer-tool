@@ -62,6 +62,18 @@ class PayrollEmployee(BaseModel):
     department_code: str
     work_location: str
 
+
+# LEARNING DESTINATION CONTRACT
+# Defines the data format expected by the downstream learning system
+# ------------------------------------------------------------------
+class LearningUser(BaseModel):
+    employee_id: str
+    full_name: str
+    department: str
+    location: str
+    manager_id: Optional[str] = None
+    learning_role: str
+
 # WORKDAY/CANONICAL VALUES → PAYROLL VALUES
 # Using department in to form department code for payroll system
 PAYROLL_DEPARTMENT_MAP = {
@@ -123,11 +135,36 @@ def send_to_payroll(employee: PayrollEmployee):
 
     return True
 
+learning_attempts = {}
 
-# RETRY PAYROLL DELIVERY
+def send_to_learning(employee: LearningUser):
+
+    employee_id = employee.employee_id
+
+    learning_attempts[employee_id] = learning_attempts.get(employee_id, 0) + 1
+    attempt = learning_attempts[employee_id]
+
+    print("LEARNING:", employee_id, "ATTEMPT:", attempt)
+
+    # Temporary failure, succeeds on retry
+    if employee_id == "WD-2002" and attempt == 1:
+        raise Exception("503 Service Unavailable")
+
+    # Persistent retryable failure
+    if employee_id == "WD-2003":
+        raise Exception("503 Service Unavailable")
+
+    # Non-retryable bad request
+    if employee_id == "WD-2004":
+        raise Exception("400 Bad Request")
+
+    return True
+
+
+# RETRY PAYROLL/LEARNING
 # Attempts delivery up to 3 times before marking it as failed
 # ------------------------------------------------------------------
-def deliver_to_payroll(employee: PayrollEmployee):
+def deliver_with_retry(send_function, employee):
 
     max_attempts = 3
     attempts = 0
@@ -138,7 +175,7 @@ def deliver_to_payroll(employee: PayrollEmployee):
         attempts += 1
 
         try:
-            send_to_payroll(employee)
+            send_function(employee)
 
             latency_ms = round(
                 (time.perf_counter() - start_time) * 1000,
@@ -180,7 +217,28 @@ def deliver_to_payroll(employee: PayrollEmployee):
                     "latency_ms": latency_ms
                 }
 
-# Stores delivery results for observability and troubleshooting
+# CANONICAL VALUES → LEARNING VALUES
+# ------------------------------------------------------------------
+LEARNING_ROLE_MAP = {
+    "Engineering": "Technical Learner",
+    "Sales": "Sales Learner",
+    "Marketing": "Marketing Learner",
+}
+
+# TRANSFORM CANONICAL WORKER → LEARNING CONTRACT
+# ------------------------------------------------------------------
+def transform_worker_to_learning(worker: WorkerContract):
+
+    return LearningUser(
+        employee_id=worker.worker_id,
+        full_name=worker.full_name,
+        department=worker.department,
+        location=worker.location,
+        manager_id=worker.manager_id,
+        learning_role=LEARNING_ROLE_MAP[worker.department]
+    )
+
+# Stores delivery results for observability and troubleshooting / future database integration
 integration_log = []
 
 
@@ -510,9 +568,14 @@ def process_worker_transfer(event: WorkdayTransferEvent):
 
     worker = transform_workday_worker(event)
 
+    # for payroll destination
     payroll_employee = transform_worker_to_payroll(worker)
+    payroll_result = deliver_with_retry(send_to_payroll, payroll_employee)
 
-    payroll_result = deliver_to_payroll(payroll_employee)
+    # for learning destination
+    learning_user = transform_worker_to_learning(worker)
+    print("ABOUT TO CALL LEARNING")
+    learning_result = deliver_with_retry(send_to_learning, learning_user)
 
     log_entry = {
         "worker_id": worker.worker_id,
@@ -526,12 +589,25 @@ def process_worker_transfer(event: WorkdayTransferEvent):
 
     integration_log.append(log_entry)
 
+    learning_log_entry = {
+        "worker_id": worker.worker_id,
+        "destination": "learning",
+        "status": learning_result["status"],
+        "attempts": learning_result["attempts"],
+        "error": learning_result["error"],
+        "latency_ms": learning_result["latency_ms"],
+        "timestamp": datetime.utcnow().isoformat()
+
+    }
+
+    integration_log.append(learning_log_entry)
+
     return {
-        "message": "Worker transfer received",
-        "source": "workday",
         "worker": worker,
         "payroll": payroll_employee,
-        "delivery": payroll_result
+        "payroll_delivery": payroll_result,
+        "learning": learning_user,
+        "learning_delivery": learning_result
     }
 
 # ------------------------------------------------------------------
