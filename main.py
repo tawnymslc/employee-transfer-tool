@@ -1,17 +1,170 @@
 from fastapi import FastAPI
+from pydantic import BaseModel
+from typing import Optional
+import time
 from fastapi.responses import StreamingResponse
 from datetime import datetime
+from fastapi.middleware.cors import CORSMiddleware
 import csv
 import io
 
-app = FastAPI(title="Workstream → Toast Employee Transfer")
+app = FastAPI(
+    title="Integration Platform API",
+    description="Backend services for enterprise integration and migration projects."
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:3000",   # local
+        "https://tawny-mathi.com",   # production
+        "https://www.tawny-mathi.com" 
+    ], 
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# ------------------------------------------------------------------
+# **** WORKDAY INTEGRATION ***
+# ------------------------------------------------------------------
+
+
+# Defines the expected data contract for employee transfer events received from Workday
+# ------------------------------------------------------------------
+class WorkdayTransferEvent(BaseModel):
+    worker_id: str
+    first_name: str
+    last_name: str
+    old_department: str
+    new_department: str
+    location: str
+    manager_id: Optional[str] = None
+
+
+# WORKDAY CANONICAL WORKER MODEL
+# Normalizes Workday-specific data into a shared internal contract
+# ------------------------------------------------------------------
+class WorkerContract(BaseModel):
+    worker_id: str
+    full_name: str
+    department: str
+    location: str
+    manager_id: Optional[str] = None
+
+
+# PAYROLL DESTINATION CONTRACT
+# Defines the data format expected by the downstream payroll system
+# ------------------------------------------------------------------
+class PayrollEmployee(BaseModel):
+    employee_id: str
+    full_name: str
+    department_code: str
+    work_location: str
+
+# WORKDAY/CANONICAL VALUES → PAYROLL VALUES
+# Using department in to form department code for payroll system
+PAYROLL_DEPARTMENT_MAP = {
+    "Engineering": "ENG",
+    "Sales": "SAL",
+    "Marketing": "MKT",
+}
+
+# TRANSFORM WORKDAY EVENT → CANONICAL WORKER CONTRACT
+# ------------------------------------------------------------------
+def transform_workday_worker(event: WorkdayTransferEvent):
+
+    return WorkerContract(
+
+        worker_id=event.worker_id,
+        full_name=f"{event.first_name} {event.last_name}",
+        department=event.new_department,
+        location=event.location,
+        manager_id=event.manager_id
+    )
+
+
+# TRANSFORM CANONICAL WORKER → PAYROLL CONTRACT
+# ------------------------------------------------------------------
+def transform_worker_to_payroll(worker: WorkerContract):
+
+    return PayrollEmployee(
+        employee_id=worker.worker_id,
+        full_name=worker.full_name,
+        department_code=PAYROLL_DEPARTMENT_MAP[worker.department],
+        work_location=worker.location
+    )
+
+# MOCK SEND TO PAYROLL
+# Simulates sending transformed employee data to a downstream system
+# ------------------------------------------------------------------
+def send_to_payroll(employee: PayrollEmployee):
+
+    # Simulate a downstream failure for testing
+    if employee.department_code == "ENG":
+
+        raise Exception("503 Service Unavailable")
+
+    return True
+
+
+# RETRY PAYROLL DELIVERY
+# Attempts delivery up to 3 times before marking it as failed
+# ------------------------------------------------------------------
+def deliver_to_payroll(employee: PayrollEmployee):
+
+    max_attempts = 3
+    attempts = 0
+
+    start_time = time.perf_counter()
+
+    while attempts < max_attempts:
+
+        attempts += 1
+
+        try:
+            send_to_payroll(employee)
+
+            latency_ms = round(
+                (time.perf_counter() - start_time) * 1000,
+                2
+            )
+
+            return {
+                "status": "success",
+                "attempts": attempts,
+                "error": None,
+                "latency_ms": latency_ms
+            }
+        
+        except Exception as error:
+
+            if attempts == max_attempts:
+
+                latency_ms = round(
+                    (time.perf_counter() - start_time) * 1000,
+                    2
+                ) 
+
+                return {
+                    "status": "failed",
+                    "attempts": attempts,
+                    "error": str(error),
+                    "latency_ms": latency_ms
+                }
+
+# WORKDAY INTEGRATION LOG
+# Stores delivery results for observability and troubleshooting
+# ------------------------------------------------------------------
+integration_log = []
 
 
 # ------------------------------------------------------------------
+# **** WORKSTREAM EMPLOYEE TRANSFER TOOL INTEGRATION ****
+# ------------------------------------------------------------------
+
 # MOCK WORKSTREAM DATA
 # Later this becomes: GET employees from Workstream API
-# ------------------------------------------------------------------
-
 workstream_employees = [
     {
         "employee_id": "WS-1001",
@@ -60,11 +213,9 @@ workstream_employees = [
 ]
 
 
-# ------------------------------------------------------------------
+
 # MOCK TOAST DATA
 # Later this becomes: GET /labor/v1/employees
-# ------------------------------------------------------------------
-
 toast_employees = [
     {
         "externalEmployeeId": "WS-1002",
@@ -75,11 +226,8 @@ toast_employees = [
 ]
 
 
-# ------------------------------------------------------------------
 # DATA MAPPINGS
 # Workstream values → Toast values
-# ------------------------------------------------------------------
-
 LOCATION_MAP = {
     "Downtown SLC": "toast-location-001",
     "Sugarhouse": "toast-location-002",
@@ -95,10 +243,7 @@ POSITION_MAP = {
 migration_log = []
 
 
-# ------------------------------------------------------------------
-# VALIDATION
-# ------------------------------------------------------------------
-
+# ---------------------------VALIDATION---------------------------------------
 REQUIRED_FIELDS = [
     "employee_id",
     "first_name",
@@ -107,7 +252,6 @@ REQUIRED_FIELDS = [
     "location",
     "position",
 ]
-
 
 def validate_employee(employee):
 
@@ -129,10 +273,7 @@ def validate_employee(employee):
     return True, None
 
 
-# ------------------------------------------------------------------
 # DUPLICATE CHECK
-# ------------------------------------------------------------------
-
 def employee_exists_in_toast(employee):
 
     for toast_employee in toast_employees:
@@ -153,10 +294,7 @@ def employee_exists_in_toast(employee):
     return False
 
 
-# ------------------------------------------------------------------
 # TRANSFORM WORKSTREAM → TOAST
-# ------------------------------------------------------------------
-
 def transform_employee(employee):
 
     toast_employee = {
@@ -185,10 +323,8 @@ def transform_employee(employee):
     return toast_employee
 
 
-# ------------------------------------------------------------------
 # MOCK SEND TO TOAST
 # Eventually becomes POST /labor/v1/employees
-# ------------------------------------------------------------------
 
 def send_to_toast(employee):
 
@@ -197,10 +333,12 @@ def send_to_toast(employee):
     return True
 
 
-# ------------------------------------------------------------------
+#****ENDPOINTS****#
+
+# ------------------WORKSTREAM ENDPOINTS-------------------
+
 # MIGRATION
 # ------------------------------------------------------------------
-
 @app.post("/migrate")
 def migrate_employees():
 
@@ -289,20 +427,18 @@ def migrate_employees():
     }
 
 
-# ------------------------------------------------------------------
+
 # VIEW MIGRATION HISTORY
 # ------------------------------------------------------------------
-
 @app.get("/migrations")
 def get_migrations():
 
     return migration_log
 
 
-# ------------------------------------------------------------------
+
 # DOWNLOAD REPORT
 # ------------------------------------------------------------------
-
 @app.get("/report")
 def download_report():
 
@@ -334,3 +470,50 @@ def download_report():
                 "attachment; filename=employee_migration_report.csv"
         },
     )
+
+
+
+# ------------------WORKDAY ENDPOINTS-------------------
+
+
+# ------------------------------------------------------------------
+# PROCESS WORKDAY EMPLOYEE TRANSFER EVENT
+# ------------------------------------------------------------------
+
+@app.post("/workday/events/worker-transfer")
+def process_worker_transfer(event: WorkdayTransferEvent):
+
+    worker = transform_workday_worker(event)
+
+    payroll_employee = transform_worker_to_payroll(worker)
+
+    payroll_result = deliver_to_payroll(payroll_employee)
+
+    log_entry = {
+        "worker_id": worker.worker_id,
+        "destination": "payroll",
+        "status": payroll_result["status"],
+        "attempts": payroll_result["attempts"],
+        "error": payroll_result["error"],
+        "latency_ms": payroll_result["latency_ms"],
+        "timestamp": datetime.utcnow().isoformat()
+    }
+
+    integration_log.append(log_entry)
+
+    return {
+        "message": "Worker transfer received",
+        "source": "workday",
+        "worker": worker,
+        "payroll": payroll_employee,
+        "delivery": payroll_result
+    }
+
+# ------------------------------------------------------------------
+# VIEW WORKDAY INTEGRATION HISTORY
+# ------------------------------------------------------------------
+
+@app.get("/workday/integrations")
+def get_workday_integrations():
+
+    return integration_log
