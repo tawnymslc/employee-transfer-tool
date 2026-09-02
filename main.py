@@ -144,8 +144,6 @@ def send_to_learning(employee: LearningUser):
     learning_attempts[employee_id] = learning_attempts.get(employee_id, 0) + 1
     attempt = learning_attempts[employee_id]
 
-    print("LEARNING:", employee_id, "ATTEMPT:", attempt)
-
     # Temporary failure, succeeds on retry
     if employee_id == "WD-2002" and attempt == 1:
         raise Exception("503 Service Unavailable")
@@ -559,10 +557,9 @@ def download_report():
 # ------------------WORKDAY ENDPOINTS-------------------
 
 
-# ------------------------------------------------------------------
+
 # PROCESS WORKDAY EMPLOYEE TRANSFER EVENT
 # ------------------------------------------------------------------
-
 @app.post("/workday/events/worker-transfer")
 def process_worker_transfer(event: WorkdayTransferEvent):
 
@@ -574,10 +571,9 @@ def process_worker_transfer(event: WorkdayTransferEvent):
 
     # for learning destination
     learning_user = transform_worker_to_learning(worker)
-    print("ABOUT TO CALL LEARNING")
     learning_result = deliver_with_retry(send_to_learning, learning_user)
 
-    log_entry = {
+    payroll_log_entry = {
         "worker_id": worker.worker_id,
         "destination": "payroll",
         "status": payroll_result["status"],
@@ -587,7 +583,7 @@ def process_worker_transfer(event: WorkdayTransferEvent):
         "timestamp": datetime.utcnow().isoformat()
     }
 
-    integration_log.append(log_entry)
+    integration_log.append(payroll_log_entry)
 
     learning_log_entry = {
         "worker_id": worker.worker_id,
@@ -610,11 +606,70 @@ def process_worker_transfer(event: WorkdayTransferEvent):
         "learning_delivery": learning_result
     }
 
-# ------------------------------------------------------------------
+
 # VIEW WORKDAY INTEGRATION HISTORY
 # ------------------------------------------------------------------
-
 @app.get("/workday/integrations")
 def get_workday_integrations():
 
     return integration_log
+
+# VIEW WORKDAY INTEGRATION SUMARRY
+# ------------------------------------------------------------------
+@app.get("/workday/integrations/summary")
+def get_integration_summary():
+
+    total = len(integration_log)
+
+    successful = sum(
+        1 for entry in integration_log
+        if entry["status"] == "success"
+    )
+    failed = sum(
+        1 for entry in integration_log
+        if entry["status"] == "failed"
+    )
+    retried = sum(
+        1 for entry in integration_log
+        if entry["attempts"] > 1
+    )
+    total_latency = sum(
+        entry["latency_ms"] for entry in integration_log
+    )
+    average_latency = (
+        round(total_latency / total, 2)
+        if total > 0
+        else 0
+    )
+    success_rate = (
+        round((successful / total) * 100, 2)
+        if total > 0
+        else 0
+    )
+    failure_rate = (
+        round((failed / total) * 100, 2)
+        if total > 0
+        else 0
+    )
+    return {
+        "total_deliveries": total,
+        "successful": successful,
+        "failed": failed,
+        "retried": retried,
+        "success_rate": success_rate,
+        "failure_rate": failure_rate,
+        "average_latency_ms": average_latency
+    }
+
+# RESET LOGS
+# ------------------------------------------------------------------
+@app.post("/workday/demo/reset")
+def clear_logs():
+    integration_log.clear()
+    payroll_attempts.clear()
+    learning_attempts.clear()
+
+    return {
+        "status": "success",
+        "message": "Workday demo data reset"
+    }
