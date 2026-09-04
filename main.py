@@ -274,7 +274,7 @@ workstream_employees = [
         "first_name": "Emily",
         "last_name": "Jones",
         "email": None,  # intentionally missing required data
-        "location": "Downtown SLC",
+        "location": "SLC",
         "position": "Server",
         "phone": "801-555-1003",
         "hire_date": None,
@@ -322,7 +322,8 @@ POSITION_MAP = {
 migration_log = []
 
 
-# ---------------------------VALIDATION---------------------------------------
+# VALIDATION REQUIRED FIELDS
+# --------------------------
 REQUIRED_FIELDS = [
     "employee_id",
     "first_name",
@@ -334,39 +335,41 @@ REQUIRED_FIELDS = [
 
 def validate_employee(employee):
 
-    missing_fields = []
+    errors = []
 
+    # non-valid employees, either missing required fields AND if location/position present but non in mappings.
     for field in REQUIRED_FIELDS:
         if not employee.get(field):
-            missing_fields.append(field)
+            errors.append(f"Missing required field: {field}")
 
-    if missing_fields:
-        return False, f"Missing required fields: {', '.join(missing_fields)}"
+    if employee.get("location") and employee["location"] not in LOCATION_MAP:
+        errors.append(
+            f"No Toast mapping for location: {employee['location']}"
+        )
 
-    if employee["location"] not in LOCATION_MAP:
-        return False, f"No Toast mapping for location: {employee['location']}"
-
-    if employee["position"] not in POSITION_MAP:
-        return False, f"No Toast mapping for position: {employee['position']}"
+    if employee.get("position") and employee["position"] not in POSITION_MAP:
+        errors.append(
+            f"No Toast mapping for position: {employee['position']}"
+        )
+    if errors:
+        return False, errors
 
     return True, None
 
 
 # DUPLICATE CHECK
+# --------------------------
 def employee_exists_in_toast(employee):
 
     for toast_employee in toast_employees:
-
         same_id = (
             toast_employee.get("externalEmployeeId")
             == employee["employee_id"]
         )
-
         same_email = (
             toast_employee.get("email")
             == employee["email"]
         )
-
         if same_id or same_email:
             return True
 
@@ -374,6 +377,7 @@ def employee_exists_in_toast(employee):
 
 
 # TRANSFORM WORKSTREAM → TOAST
+# ----------------------------
 def transform_employee(employee):
 
     toast_employee = {
@@ -392,10 +396,8 @@ def transform_employee(employee):
     }
 
     # OPTIONAL DATA
-
     if employee.get("phone"):
         toast_employee["phoneNumber"] = employee["phone"]
-
     if employee.get("hire_date"):
         toast_employee["hireDate"] = employee["hire_date"]
 
@@ -404,7 +406,7 @@ def transform_employee(employee):
 
 # MOCK SEND TO TOAST
 # Eventually becomes POST /labor/v1/employees
-
+# --------------------------
 def send_to_toast(employee):
 
     toast_employees.append(employee)
@@ -533,6 +535,8 @@ def clear_logs():
         "status": "success",
         "message": "Workday demo data reset"
     }
+# WORKDAY INT END --------------------------------------------------
+
 
 # ------------------------------------------------------------------
 # ------------------ *** WORKSTREAM ENDPOINTS *** ------------------
@@ -556,7 +560,6 @@ def migrate_employees():
     ]
 
     for employee in active_employees:
-
         result = {
             "employee_id": employee["employee_id"],
             "name": f"{employee['first_name']} {employee['last_name']}",
@@ -564,15 +567,15 @@ def migrate_employees():
         }
 
         # Validate employee
-
-        valid, error = validate_employee(employee)
+        valid, validation_errors = validate_employee(employee)
 
         if not valid:
 
             failed += 1
 
+            # add status and reason as keys to result dict
             result["status"] = "failed"
-            result["reason"] = error
+            result["reason"] = validation_errors
 
             migration_log.append(result)
             run_results.append(result)
@@ -580,7 +583,6 @@ def migrate_employees():
             continue
 
         # Duplicate check
-
         if employee_exists_in_toast(employee):
 
             skipped += 1
@@ -594,7 +596,6 @@ def migrate_employees():
             continue
 
         # Transform
-
         toast_employee = transform_employee(employee)
 
         # Send
@@ -627,7 +628,36 @@ def migrate_employees():
         "employees": run_results,
     }
 
-# WORKSTREAM PROVIDE MAPPINGS
+
+# PRE MIGRATE VALIDATION
+# ----------------------
+@app.get("/workstream/validation")
+def validate_migration():
+    results = []
+
+    active_employees = [
+        employee
+        for employee in workstream_employees
+        if employee["status"] == "active"
+    ]
+
+    for employee in active_employees:
+        valid, error = validate_employee(employee)
+
+        duplicate = employee_exists_in_toast(employee)
+
+        results.append({
+            "employee_id": employee["employee_id"],
+            "name": f"{employee['first_name']} {employee['last_name']}",
+            "valid": valid,
+            "duplicate": duplicate,
+            "reason": error,
+        })
+
+    return results
+
+
+# CLIENT SEE MAPPINGS
 # ----------------------
 @app.get("/workstream/mappings")
 def get_mappings():
@@ -636,7 +666,7 @@ def get_mappings():
         "positions": POSITION_MAP,
     }
 
-# WORKSTREAM CLIENT UPDATE LOCATION MAPPINGS
+# CLIENT UPDATE LOCATION MAPPINGS
 # ----------------------
 @app.post("/workstream/mappings/location")
 def update_location_mapping(workstream_location: str, toast_location: str):
@@ -651,7 +681,7 @@ def update_location_mapping(workstream_location: str, toast_location: str):
         }
     }
 
-# WORKSTREAM CLIENT UPDATE POSITION MAPPINGS
+# CLIENT UPDATE POSITION MAPPINGS
 # ----------------------
 @app.post("/workstream/mappings/position")
 def update_position_mapping(workstream_position: str, toast_position: str):
