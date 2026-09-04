@@ -29,7 +29,6 @@ app.add_middleware(
 # **** WORKDAY INTEGRATION ***
 # ------------------------------------------------------------------
 
-
 # Defines the expected data contract for employee transfer events received from Workday
 # ------------------------------------------------------------------
 class WorkdayTransferEvent(BaseModel):
@@ -241,8 +240,9 @@ integration_log = []
 
 
 # ------------------------------------------------------------------
-# **** WORKSTREAM EMPLOYEE TRANSFER TOOL INTEGRATION ****
+# **** WORKSTREAM EMPLOYEE TRANSFER TOOL ****
 # ------------------------------------------------------------------
+
 
 # MOCK WORKSTREAM DATA
 # Later this becomes: GET employees from Workstream API
@@ -292,8 +292,6 @@ workstream_employees = [
         "status": "inactive",
     },
 ]
-
-
 
 # MOCK TOAST DATA
 # Later this becomes: GET /labor/v1/employees
@@ -414,13 +412,135 @@ def send_to_toast(employee):
     return True
 
 
-#****ENDPOINTS****#
 
-# ------------------WORKSTREAM ENDPOINTS-------------------
+# ------------------------------------------------------------------
+# ------------------ *** WORKDAY ENDPOINTS *** ---------------------
+# ------------------------------------------------------------------
+
+
+# PROCESS WORKDAY EMPLOYEE TRANSFER EVENT
+# ----------------------
+@app.post("/workday/events/worker-transfer")
+def process_worker_transfer(event: WorkdayTransferEvent):
+
+    worker = transform_workday_worker(event)
+
+    # for payroll destination
+    payroll_employee = transform_worker_to_payroll(worker)
+    payroll_result = deliver_with_retry(send_to_payroll, payroll_employee)
+
+    # for learning destination
+    learning_user = transform_worker_to_learning(worker)
+    learning_result = deliver_with_retry(send_to_learning, learning_user)
+
+    payroll_log_entry = {
+        "worker_id": worker.worker_id,
+        "destination": "payroll",
+        "status": payroll_result["status"],
+        "attempts": payroll_result["attempts"],
+        "error": payroll_result["error"],
+        "latency_ms": payroll_result["latency_ms"],
+        "timestamp": datetime.utcnow().isoformat()
+    }
+
+    integration_log.append(payroll_log_entry)
+
+    learning_log_entry = {
+        "worker_id": worker.worker_id,
+        "destination": "learning",
+        "status": learning_result["status"],
+        "attempts": learning_result["attempts"],
+        "error": learning_result["error"],
+        "latency_ms": learning_result["latency_ms"],
+        "timestamp": datetime.utcnow().isoformat()
+
+    }
+
+    integration_log.append(learning_log_entry)
+
+    return {
+        "worker": worker,
+        "payroll": payroll_employee,
+        "payroll_delivery": payroll_result,
+        "learning": learning_user,
+        "learning_delivery": learning_result
+    }
+
+
+# VIEW WORKDAY INTEGRATION HISTORY
+# ----------------------
+@app.get("/workday/integrations")
+def get_workday_integrations():
+
+    return integration_log
+
+# VIEW WORKDAY INTEGRATION SUMMARY
+# ----------------------
+@app.get("/workday/integrations/summary")
+def get_integration_summary():
+
+    total = len(integration_log)
+
+    successful = sum(
+        1 for entry in integration_log
+        if entry["status"] == "success"
+    )
+    failed = sum(
+        1 for entry in integration_log
+        if entry["status"] == "failed"
+    )
+    retried = sum(
+        1 for entry in integration_log
+        if entry["attempts"] > 1
+    )
+    total_latency = sum(
+        entry["latency_ms"] for entry in integration_log
+    )
+    average_latency = (
+        round(total_latency / total, 2)
+        if total > 0
+        else 0
+    )
+    success_rate = (
+        round((successful / total) * 100, 2)
+        if total > 0
+        else 0
+    )
+    failure_rate = (
+        round((failed / total) * 100, 2)
+        if total > 0
+        else 0
+    )
+    return {
+        "total_deliveries": total,
+        "successful": successful,
+        "failed": failed,
+        "retried": retried,
+        "success_rate": success_rate,
+        "failure_rate": failure_rate,
+        "average_latency_ms": average_latency
+    }
+
+# RESET LOGS
+# ----------------------
+@app.post("/workday/demo/reset")
+def clear_logs():
+    integration_log.clear()
+    payroll_attempts.clear()
+    learning_attempts.clear()
+
+    return {
+        "status": "success",
+        "message": "Workday demo data reset"
+    }
+
+# ------------------------------------------------------------------
+# ------------------ *** WORKSTREAM ENDPOINTS *** ------------------
+# ------------------------------------------------------------------
 
 # MIGRATION
-# ------------------------------------------------------------------
-@app.post("/migrate")
+# ----------------------
+@app.post("/workstream/migrations")
 def migrate_employees():
 
     transferred = 0
@@ -507,20 +627,56 @@ def migrate_employees():
         "employees": run_results,
     }
 
+# WORKSTREAM PROVIDE MAPPINGS
+# ----------------------
+@app.get("/workstream/mappings")
+def get_mappings():
+    return {
+        "locations": LOCATION_MAP,
+        "positions": POSITION_MAP,
+    }
 
+# WORKSTREAM CLIENT UPDATE LOCATION MAPPINGS
+# ----------------------
+@app.post("/workstream/mappings/location")
+def update_location_mapping(workstream_location: str, toast_location: str):
+
+    LOCATION_MAP[workstream_location] = toast_location
+
+    return {
+        "message": "Location mapping updated",
+        "mapping": {
+            "workstream": workstream_location,
+            "toast": toast_location,
+        }
+    }
+
+# WORKSTREAM CLIENT UPDATE POSITION MAPPINGS
+# ----------------------
+@app.post("/workstream/mappings/position")
+def update_position_mapping(workstream_position: str, toast_position: str):
+
+    POSITION_MAP[workstream_position] = toast_position
+
+    return {
+        "message": "Position mapping updated",
+        "mapping": {
+            "workstream": workstream_position,
+            "toast": toast_position,
+        }
+    }
 
 # VIEW MIGRATION HISTORY
-# ------------------------------------------------------------------
-@app.get("/migrations")
+# ----------------------
+@app.get("/workstream/migrations")
 def get_migrations():
 
     return migration_log
 
 
-
 # DOWNLOAD REPORT
-# ------------------------------------------------------------------
-@app.get("/report")
+# ----------------------
+@app.get("/workstream/migrations/report")
 def download_report():
 
     output = io.StringIO()
@@ -551,125 +707,3 @@ def download_report():
                 "attachment; filename=employee_migration_report.csv"
         },
     )
-
-
-
-# ------------------WORKDAY ENDPOINTS-------------------
-
-
-
-# PROCESS WORKDAY EMPLOYEE TRANSFER EVENT
-# ------------------------------------------------------------------
-@app.post("/workday/events/worker-transfer")
-def process_worker_transfer(event: WorkdayTransferEvent):
-
-    worker = transform_workday_worker(event)
-
-    # for payroll destination
-    payroll_employee = transform_worker_to_payroll(worker)
-    payroll_result = deliver_with_retry(send_to_payroll, payroll_employee)
-
-    # for learning destination
-    learning_user = transform_worker_to_learning(worker)
-    learning_result = deliver_with_retry(send_to_learning, learning_user)
-
-    payroll_log_entry = {
-        "worker_id": worker.worker_id,
-        "destination": "payroll",
-        "status": payroll_result["status"],
-        "attempts": payroll_result["attempts"],
-        "error": payroll_result["error"],
-        "latency_ms": payroll_result["latency_ms"],
-        "timestamp": datetime.utcnow().isoformat()
-    }
-
-    integration_log.append(payroll_log_entry)
-
-    learning_log_entry = {
-        "worker_id": worker.worker_id,
-        "destination": "learning",
-        "status": learning_result["status"],
-        "attempts": learning_result["attempts"],
-        "error": learning_result["error"],
-        "latency_ms": learning_result["latency_ms"],
-        "timestamp": datetime.utcnow().isoformat()
-
-    }
-
-    integration_log.append(learning_log_entry)
-
-    return {
-        "worker": worker,
-        "payroll": payroll_employee,
-        "payroll_delivery": payroll_result,
-        "learning": learning_user,
-        "learning_delivery": learning_result
-    }
-
-
-# VIEW WORKDAY INTEGRATION HISTORY
-# ------------------------------------------------------------------
-@app.get("/workday/integrations")
-def get_workday_integrations():
-
-    return integration_log
-
-# VIEW WORKDAY INTEGRATION SUMARRY
-# ------------------------------------------------------------------
-@app.get("/workday/integrations/summary")
-def get_integration_summary():
-
-    total = len(integration_log)
-
-    successful = sum(
-        1 for entry in integration_log
-        if entry["status"] == "success"
-    )
-    failed = sum(
-        1 for entry in integration_log
-        if entry["status"] == "failed"
-    )
-    retried = sum(
-        1 for entry in integration_log
-        if entry["attempts"] > 1
-    )
-    total_latency = sum(
-        entry["latency_ms"] for entry in integration_log
-    )
-    average_latency = (
-        round(total_latency / total, 2)
-        if total > 0
-        else 0
-    )
-    success_rate = (
-        round((successful / total) * 100, 2)
-        if total > 0
-        else 0
-    )
-    failure_rate = (
-        round((failed / total) * 100, 2)
-        if total > 0
-        else 0
-    )
-    return {
-        "total_deliveries": total,
-        "successful": successful,
-        "failed": failed,
-        "retried": retried,
-        "success_rate": success_rate,
-        "failure_rate": failure_rate,
-        "average_latency_ms": average_latency
-    }
-
-# RESET LOGS
-# ------------------------------------------------------------------
-@app.post("/workday/demo/reset")
-def clear_logs():
-    integration_log.clear()
-    payroll_attempts.clear()
-    learning_attempts.clear()
-
-    return {
-        "status": "success",
-        "message": "Workday demo data reset"
-    }
