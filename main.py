@@ -1,12 +1,16 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends
 from pydantic import BaseModel
 from typing import Optional
 import time
 from fastapi.responses import StreamingResponse
 from datetime import datetime
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.orm import Session
 import csv
 import io
+
+from database import get_db # database.py
+from models import LocationMapping, PositionMapping, MigrationRun, MigrationResult # models.py
 
 app = FastAPI(
     title="Integration Platform API",
@@ -659,42 +663,102 @@ def validate_migration():
 
 # CLIENT SEE MAPPINGS
 # ----------------------
+#@app.get("/workstream/mappings")
+#def get_mappings():
+#    return {
+#       "locations": LOCATION_MAP,
+#        "positions": POSITION_MAP,
+#    }
+
+# CLIENT SEE MAPPINGS IN DB
+# ----------------------
 @app.get("/workstream/mappings")
-def get_mappings():
-    return {
-        "locations": LOCATION_MAP,
-        "positions": POSITION_MAP,
+def get_mappings(db: Session = Depends(get_db)):
+
+    location_rows = db.query(LocationMapping).all()
+    position_rows = db.query(PositionMapping).all()
+
+    locations = {
+        row.source_location: row.destination_location
+        for row in location_rows
     }
 
+    positions = {
+        row.source_position: row.destination_position
+        for row in position_rows
+    }
+
+    return {
+        "locations": locations,
+        "positions": positions
+    }
 # CLIENT UPDATE LOCATION MAPPINGS
 # ----------------------
+#@app.post("/workstream/mappings/location")
+#def update_location_mapping(workstream_location: str, toast_location: str):
+
+#   LOCATION_MAP[workstream_location] = toast_location
+
+#    return {
+#        "message": "Location mapping updated",
+#        "mapping": {
+#            "workstream": workstream_location,
+#            "toast": toast_location,
+#        }
+#    }
+
+# CLIENT UPDATE LOCATION MAPPINGS IN DB
 @app.post("/workstream/mappings/location")
-def update_location_mapping(workstream_location: str, toast_location: str):
+def add_location_mapping(
+    source_location: str,
+    destination_location: str,
+    db: Session = Depends(get_db)
+):
 
-    LOCATION_MAP[workstream_location] = toast_location
+    new_mapping = LocationMapping(
+        source_location=source_location,
+        destination_location=destination_location
+    )
 
-    return {
-        "message": "Location mapping updated",
-        "mapping": {
-            "workstream": workstream_location,
-            "toast": toast_location,
-        }
-    }
+    db.add(new_mapping)
+    db.commit()
+    db.refresh(new_mapping)
 
-# CLIENT UPDATE POSITION MAPPINGS
+    return new_mapping
+
+# CLIENT UPDATE POSITION MAPPINGS IN DB
 # ----------------------
 @app.post("/workstream/mappings/position")
-def update_position_mapping(workstream_position: str, toast_position: str):
+def add_position_mapping(
+    source_position: str,
+    destination_position: str,
+    db: Session = Depends(get_db)
+):
 
-    POSITION_MAP[workstream_position] = toast_position
+    new_mapping = PositionMapping(
+        source_position=source_position,
+        destination_position=destination_position
+    )
 
-    return {
-        "message": "Position mapping updated",
-        "mapping": {
-            "workstream": workstream_position,
-            "toast": toast_position,
-        }
-    }
+    db.add(new_mapping)
+    db.commit()
+    db.refresh(new_mapping)
+
+    return new_mapping
+# CLIENT UPDATE POSITION MAPPINGS
+# ----------------------
+#@app.post("/workstream/mappings/position")
+#def update_position_mapping(workstream_position: str, toast_position: str):
+
+#    POSITION_MAP[workstream_position] = toast_position
+
+ #   return {
+ #       "message": "Position mapping updated",
+ #       "mapping": {
+ #           "workstream": workstream_position,
+ #           "toast": toast_position,
+ #       }
+ #   }
 
 # VIEW MIGRATION HISTORY
 # ----------------------

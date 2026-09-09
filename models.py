@@ -1,5 +1,6 @@
 from sqlalchemy import Column, BigInteger, String, Integer, DateTime, ForeignKey, Text
-from sqlalchemy.sql import func, relationship
+from sqlalchemy.sql import func
+from sqlalchemy.orm import relationship
 
 from database import Base
 
@@ -68,25 +69,25 @@ class MigrationResult(Base):
 
     )
 
-    class LocationMapping(Base):
-        __tablename__ = "location_mappings"
-        __table_args__ = {"schema": "employee_transfer"}
+class LocationMapping(Base):
+    __tablename__ = "location_mappings"
+    __table_args__ = {"schema": "employee_transfer"}
 
-        id = Column(BigInteger, primary_key=True)
-        source_location = Column(String(200), nullable=False, unique=True)
-        destination_location = Column(String(200), nullable=False)
+    id = Column(BigInteger, primary_key=True)
+    source_location = Column(String(200), nullable=False, unique=True)
+    destination_location = Column(String(200), nullable=False)
 
-        created_at = Column(
-            DateTime(timezone=True),
-            nullable=False,
-            server_default=func.now()
-        )
+    created_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now()
+    )
 
-        updated_at = Column(
-            DateTime(timezone=True),
-            nullable=False,
-            server_default=func.now()
-        )
+    updated_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now()
+    )
 
 
 class PositionMapping(Base):
