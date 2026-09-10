@@ -549,7 +549,7 @@ def clear_logs():
 # MIGRATION
 # ----------------------
 @app.post("/workstream/migrations")
-def migrate_employees():
+def migrate_employees(db: Session = Depends(get_db)):
 
     transferred = 0
     skipped = 0
@@ -563,11 +563,26 @@ def migrate_employees():
         if employee["status"] == "active"
     ]
 
+    # Create the overall migration run
+    migration_run = MigrationRun(
+        total_employees=len(active_employees)
+    )
+
+    db.add(migration_run)
+    db.commit()
+    db.refresh(migration_run)
+
     for employee in active_employees:
+
+        employee_name = (
+            f"{employee['first_name']} {employee['last_name']}"
+        )
+
         result = {
             "employee_id": employee["employee_id"],
-            "name": f"{employee['first_name']} {employee['last_name']}",
+            "name": employee_name,
             "migration_date": datetime.utcnow().isoformat(),
+
         }
 
         # Validate employee
@@ -577,11 +592,24 @@ def migrate_employees():
 
             failed += 1
 
+            reason = "; ".join(validation_errors)
+
             # add status and reason as keys to result dict
             result["status"] = "failed"
-            result["reason"] = validation_errors
+            result["reason"] = reason
 
-            migration_log.append(result)
+            # migration_log.append(result)
+            # run_results.append(result)
+
+            migration_result = MigrationResult(
+                migration_run_id=migration_run.id,
+                employee_id=employee["employee_id"],
+                employee_name=employee_name,
+                status="failed",
+                reason=result["reason"]
+            )
+
+            db.add(migration_result)
             run_results.append(result)
 
             continue
@@ -594,7 +622,18 @@ def migrate_employees():
             result["status"] = "skipped"
             result["reason"] = "Employee already exists in Toast"
 
-            migration_log.append(result)
+            # migration_log.append(result)
+            # run_results.append(result)
+
+            migration_result = MigrationResult(
+                migration_run_id=migration_run.id,
+                employee_id=employee["employee_id"],
+                employee_name=employee_name,
+                status="skipped",
+                reason=result["reason"]
+            )
+
+            db.add(migration_result)
             run_results.append(result)
 
             continue
@@ -620,10 +659,31 @@ def migrate_employees():
             result["status"] = "failed"
             result["reason"] = str(error)
 
-        migration_log.append(result)
+        # migration_log.append(result)
+        # run_results.append(result)
+
+        migration_result = MigrationResult(
+            migration_run_id=migration_run.id,
+            employee_id=employee["employee_id"],
+            employee_name=employee_name,
+            status=result["status"],
+            reason=result["reason"]
+        )
+
+        db.add(migration_result)
         run_results.append(result)
 
+    # Update the parent migration run
+    migration_run.transferred_count = transferred
+    migration_run.skipped_count = skipped
+    migration_run.failed_count = failed
+    migration_run.status = "completed"
+    migration_run.completed_at = datetime.utcnow()
+
+    db.commit()
+
     return {
+        "migration_run_id": migration_run.id,
         "summary": {
             "transferred": transferred,
             "skipped": skipped,
@@ -631,6 +691,14 @@ def migrate_employees():
         },
         "employees": run_results,
     }
+    #return {
+    #    "summary": {
+    #        "transferred": transferred,
+    #        "skipped": skipped,
+    #        "failed": failed,
+    #    },
+    #    "employees": run_results,
+    #}
 
 
 # PRE MIGRATE VALIDATION
@@ -763,10 +831,39 @@ def add_position_mapping(
 # VIEW MIGRATION HISTORY
 # ----------------------
 @app.get("/workstream/migrations")
-def get_migrations():
+def get_migrations(db: Session = Depends(get_db)):
 
-    return migration_log
+    migration_runs = db.query(MigrationRun).all()
 
+    history = []
+
+    for run in migration_runs:
+
+        run_data = {
+            "migration_run_id": run.id,
+            "started_at": run.started_at,
+            "completed_at": run.completed_at,
+            "status": run.status,
+            "total_employees": run.total_employees,
+            "transferred": run.transferred_count,
+            "skipped": run.skipped_count,
+            "failed": run.failed_count,
+            "employees": []
+        }
+
+        for result in run.results:
+
+            run_data["employees"].append({
+                "employee_id": result.employee_id,
+                "name": result.employee_name,
+                "status": result.status,
+                "reason": result.reason
+            })
+
+        history.append(run_data)
+
+    return history
+    # return migration_log
 
 # DOWNLOAD REPORT
 # ----------------------
