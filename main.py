@@ -867,8 +867,19 @@ def get_migrations(db: Session = Depends(get_db)):
 
 # DOWNLOAD REPORT
 # ----------------------
-@app.get("/workstream/migrations/report")
-def download_report():
+@app.get("/workstream/migrations/{migration_run_id}/report")
+def download_report(
+    migration_run_id: int,
+    db: Session = Depends(get_db)
+):
+
+    results = (
+        db.query(MigrationResult)
+        .filter(
+            MigrationResult.migration_run_id == migration_run_id
+        )
+        .all()
+    )
 
     output = io.StringIO()
 
@@ -885,8 +896,14 @@ def download_report():
 
     writer.writeheader()
 
-    for record in migration_log:
-        writer.writerow(record)
+    for result in results:
+        writer.writerow({
+            "employee_id": result.employee_id,
+            "name": result.employee_name,
+            "migration_date": result.created_at,
+            "status": result.status,
+            "reason": result.reason,
+        })
 
     output.seek(0)
 
@@ -895,6 +912,36 @@ def download_report():
         media_type="text/csv",
         headers={
             "Content-Disposition":
-                "attachment; filename=employee_migration_report.csv"
+                f"attachment; filename=migration_run_{migration_run_id}.csv"
         },
     )
+#def download_report():
+
+#    output = io.StringIO()
+
+#    writer = csv.DictWriter(
+#        output,
+#        fieldnames=[
+#            "employee_id",
+#            "name",
+#            "migration_date",
+#            "status",
+#            "reason",
+#        ],
+#    )
+
+#    writer.writeheader()
+
+#    for record in migration_log:
+#        writer.writerow(record)
+
+#    output.seek(0)
+
+#    return StreamingResponse(
+#        iter([output.getvalue()]),
+#        media_type="text/csv",
+#        headers={
+#            "Content-Disposition":
+#                "attachment; filename=employee_migration_report.csv"
+#        },
+#    )
