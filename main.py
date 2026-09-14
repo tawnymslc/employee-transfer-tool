@@ -582,7 +582,6 @@ def migrate_employees(db: Session = Depends(get_db)):
             "employee_id": employee["employee_id"],
             "name": employee_name,
             "migration_date": datetime.utcnow().isoformat(),
-
         }
 
         # Validate employee
@@ -851,13 +850,13 @@ def get_migrations(db: Session = Depends(get_db)):
             "employees": []
         }
 
-        for result in run.results:
+        for employee_result in run.results:
 
             run_data["employees"].append({
-                "employee_id": result.employee_id,
-                "name": result.employee_name,
-                "status": result.status,
-                "reason": result.reason
+                "employee_id": employee_result.employee_id,
+                "name": employee_result.employee_name,
+                "status": employee_result.status,
+                "reason": employee_result.reason
             })
 
         history.append(run_data)

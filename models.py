@@ -36,8 +36,7 @@ class MigrationRun(Base):
     results = relationship(
         "MigrationResult",
         back_populates="migration_run"
-
-)
+    )
 
 # migration result class, migration run table in the db
 class MigrationResult(Base):
