@@ -252,47 +252,91 @@ integration_log = []
 # Later this becomes: GET employees from Workstream API
 workstream_employees = [
     {
-        "employee_id": "WS-1001",
-        "first_name": "Maria",
-        "last_name": "Lopez",
-        "email": "maria@example.com",
+        "employee_id": "WS-2001",
+        "first_name": "Sofia",
+        "last_name": "Ramirez",
+        "email": "sofia.ramirez@example.com",
         "location": "Downtown SLC",
-        "position": "Server",
-        "phone": "801-555-1001",
-        "hire_date": "2025-05-01",
+        "position": "Manager",
+        "phone": "801-555-2001",
+        "hire_date": "2026-07-14",
         "status": "active",
     },
     {
-        "employee_id": "WS-1002",
-        "first_name": "James",
-        "last_name": "Smith",
-        "email": "james@example.com",
+        "employee_id": "WS-2002",
+        "first_name": "Ethan",
+        "last_name": "Brooks",
+        "email": "ethan.brooks@example.com",
+        "location": "Airport",
+        "position": "Cook",
+        "phone": "801-555-2002",
+        "hire_date": "2026-08-03",
+        "status": "active",
+    },
+    {
+        "employee_id": "WS-2003",
+        "first_name": "Maya",
+        "last_name": "Chen",
+        "email": "maya.chen@example.com",
+        "location": "Midvale",
+        "position": "Bartender",
+        "phone": None,
+        "hire_date": "2026-06-21",
+        "status": "active",
+    },
+    {
+        "employee_id": "WS-2004",
+        "first_name": "Noah",
+        "last_name": "Williams",
+        "email": "noah.williams@example.com",
+        "location": "Sugarhouse",
+        "position": "Server",
+        "phone": "801-555-2004",
+        "hire_date": "2026-05-18",
+        "status": "active",
+    },
+    {
+        "employee_id": "WS-2005",
+        "first_name": "Isabella",
+        "last_name": "Torres",
+        "email": "isabella.torres@example.com",
+        "location": "Downtown SLC",
+        "position": "Server",
+        "phone": "801-555-2005",
+        "hire_date": "2026-04-09",
+        "status": "active",
+    },
+    {
+        "employee_id": "WS-2006",
+        "first_name": "Liam",
+        "last_name": "Foster",
+        "email": None,  # intentionally missing required email
         "location": "Sugarhouse",
         "position": "Cook",
-        "phone": None,
-        "hire_date": "2026-01-15",
+        "phone": "801-555-2006",
+        "hire_date": "2026-08-25",
         "status": "active",
     },
     {
-        "employee_id": "WS-1003",
-        "first_name": "Emily",
-        "last_name": "Jones",
-        "email": None,  # intentionally missing required data
-        "location": "SLC",
-        "position": "Server",
-        "phone": "801-555-1003",
-        "hire_date": None,
-        "status": "active",
-    },
-    {
-        "employee_id": "WS-1004",
-        "first_name": "Carlos",
-        "last_name": "Martinez",
-        "email": "carlos@example.com",
+        "employee_id": "WS-2007",
+        "first_name": "Zoe",
+        "last_name": "Anderson",
+        "email": "zoe.anderson@example.com",
         "location": "Downtown SLC",
+        "position": "Shift Lead",  # intentionally unmapped position
+        "phone": "801-555-2007",
+        "hire_date": "2026-09-01",
+        "status": "active",
+    },
+    {
+        "employee_id": "WS-2008",
+        "first_name": "Lucas",
+        "last_name": "Bennett",
+        "email": "lucas.bennett@example.com",
+        "location": "Midvale",
         "position": "Server",
         "phone": None,
-        "hire_date": None,
+        "hire_date": "2025-12-11",
         "status": "inactive",
     },
 ]
@@ -301,25 +345,25 @@ workstream_employees = [
 # Later this becomes: GET /labor/v1/employees
 toast_employees = [
     {
-        "externalEmployeeId": "WS-1002",
-        "email": "james@example.com",
-        "firstName": "James",
-        "lastName": "Smith",
+        "externalEmployeeId": "WS-2005",
+        "email": "isabella.torres@example.com",
+        "firstName": "Isabella",
+        "lastName": "Torres",
     }
 ]
 
 
 # DATA MAPPINGS
 # Workstream values → Toast values
-LOCATION_MAP = {
-    "Downtown SLC": "toast-location-001",
-    "Sugarhouse": "toast-location-002",
-}
+#LOCATION_MAP = {
+#    "Downtown SLC": "toast-location-001",
+#    "Sugarhouse": "toast-location-002",
+#}
 
-POSITION_MAP = {
-    "Server": "toast-job-server",
-    "Cook": "toast-job-cook",
-}
+#POSITION_MAP = {
+#    "Server": "toast-job-server",
+#   "Cook": "toast-job-cook",
+#}
 
 
 # This will eventually be persisted in a database.
@@ -337,7 +381,7 @@ REQUIRED_FIELDS = [
     "position",
 ]
 
-def validate_employee(employee):
+def validate_employee(employee, db):
 
     errors = []
 
@@ -346,15 +390,46 @@ def validate_employee(employee):
         if not employee.get(field):
             errors.append(f"Missing required field: {field}")
 
-    if employee.get("location") and employee["location"] not in LOCATION_MAP:
-        errors.append(
-            f"No Toast mapping for location: {employee['location']}"
+    #checking db table for valid location
+    if employee.get("location"):
+
+        location_mapping = (
+            db.query(LocationMapping)
+            .filter(
+                LocationMapping.source_location == employee["location"]
+            )
+            .first()
         )
 
-    if employee.get("position") and employee["position"] not in POSITION_MAP:
-        errors.append(
-            f"No Toast mapping for position: {employee['position']}"
+        if not location_mapping:
+            errors.append(
+                f"No Toast mapping for location: {employee['location']}"
+            )
+        #   if employee.get("location") and employee["location"] not in LOCATION_MAP:
+        #       errors.append(
+        #           f"No Toast mapping for location: {employee['location']}"
+        #       )
+
+    #checking db table for valid position
+    if employee.get("position"):
+
+        position_mapping = (
+            db.query(PositionMapping)
+            .filter(
+                PositionMapping.source_position == employee["position"]
+            )
+            .first()
         )
+
+        if not position_mapping:
+            errors.append(
+                f"No Toast mapping for position: {employee['position']}"
+            )
+
+            #    if employee.get("position") and employee["position"] not in POSITION_MAP:
+            #        errors.append(
+            #            f"No Toast mapping for position: {employee['position']}"
+            #        )
     if errors:
         return False, errors
 
@@ -382,7 +457,23 @@ def employee_exists_in_toast(employee):
 
 # TRANSFORM WORKSTREAM → TOAST
 # ----------------------------
-def transform_employee(employee):
+def transform_employee(employee, db):
+
+    location_mapping = (
+        db.query(LocationMapping)
+        .filter(
+            LocationMapping.source_location == employee["location"]
+        )
+        .first()
+    )
+
+    position_mapping = (
+        db.query(PositionMapping)
+        .filter(
+            PositionMapping.source_position == employee["position"]
+        )
+        .first()
+    )
 
     toast_employee = {
         "entityType": "RestaurantUser",
@@ -390,10 +481,10 @@ def transform_employee(employee):
         "firstName": employee["first_name"],
         "lastName": employee["last_name"],
         "email": employee["email"],
-        "location": LOCATION_MAP[employee["location"]],
+        "location": location_mapping.destination_location,
         "jobReferences": [
             {
-                "guid": POSITION_MAP[employee["position"]],
+                "guid": position_mapping.destination_position,
                 "entityType": "RestaurantJob",
             }
         ],
@@ -585,7 +676,7 @@ def migrate_employees(db: Session = Depends(get_db)):
         }
 
         # Validate employee
-        valid, validation_errors = validate_employee(employee)
+        valid, validation_errors = validate_employee(employee, db)
 
         if not valid:
 
@@ -638,7 +729,7 @@ def migrate_employees(db: Session = Depends(get_db)):
             continue
 
         # Transform
-        toast_employee = transform_employee(employee)
+        toast_employee = transform_employee(employee, db)
 
         # Send
 
@@ -649,7 +740,12 @@ def migrate_employees(db: Session = Depends(get_db)):
             transferred += 1
 
             result["status"] = "transferred"
-            result["reason"] = None
+            result["reason"] = (
+                f"Location: {employee['location']} → "
+                f"{toast_employee['location']} | "
+                f"Position: {employee['position']} → "
+                f"{toast_employee['jobReferences'][0]['guid']}"
+            )
 
         except Exception as error:
 
