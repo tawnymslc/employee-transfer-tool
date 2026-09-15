@@ -339,6 +339,17 @@ workstream_employees = [
         "hire_date": "2025-12-11",
         "status": "inactive",
     },
+    {
+        "employee_id": "WS-2009",
+        "first_name": "Amelia",
+        "last_name": "Davis",
+        "email": "amelia.davis@example.com",
+        "location": "West Valley",
+        "position": "Server",
+        "phone": "801-555-2009",
+        "hire_date": "2026-07-28",
+        "status": "active",
+    },
 ]
 
 # MOCK TOAST DATA
