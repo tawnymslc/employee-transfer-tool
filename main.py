@@ -33,6 +33,72 @@ app.add_middleware(
 # **** WORKDAY INTEGRATION ***
 # ------------------------------------------------------------------
 
+workday_workers = [
+    {
+        "worker_id": "WD-2001",
+        "first_name": "Maya",
+        "last_name": "Chen",
+        "old_department": "Sales",
+        "new_department": "Engineering",
+        "location": "Salt Lake City",
+        "manager_id": "WD-M1001"
+    },
+    {
+        "worker_id": "WD-2002",
+        "first_name": "Ethan",
+        "last_name": "Brooks",
+        "old_department": "Engineering",
+        "new_department": "Sales",
+        "location": "Denver",
+        "manager_id": "WD-M1002"
+    },
+    {
+        "worker_id": "WD-2003",
+        "first_name": "Sofia",
+        "last_name": "Ramirez",
+        "old_department": "Sales",
+        "new_department": "Marketing",
+        "location": "Austin",
+        "manager_id": "WD-M1003"
+    },
+    {
+        "worker_id": "WD-2004",
+        "first_name": "Noah",
+        "last_name": "Williams",
+        "old_department": "Marketing",
+        "new_department": "Engineering",
+        "location": "Seattle",
+        "manager_id": "WD-M1004"
+    },
+        {
+        "worker_id": "WD-2005",
+        "first_name": "Retry",
+        "last_name": "Success",
+        "old_department": "Marketing",
+        "new_department": "Engineering",
+        "location": "Seattle",
+        "manager_id": "WD-M1004"
+    },
+        {
+        "worker_id": "WD-2006",
+        "first_name": "Test",
+        "last_name": "Fail400",
+        "old_department": "Marketing",
+        "new_department": "Engineering",
+        "location": "Seattle",
+        "manager_id": "WD-M1004"
+    },
+        {
+        "worker_id": "WD-2007",
+        "first_name": "Test",
+        "last_name": "Fail500",
+        "old_department": "Marketing",
+        "new_department": "Engineering",
+        "location": "Seattle",
+        "manager_id": "WD-M1004"
+    },
+]
+
 # Defines the expected data contract for employee transfer events received from Workday
 # ------------------------------------------------------------------
 class WorkdayTransferEvent(BaseModel):
@@ -124,16 +190,16 @@ def send_to_payroll(employee: PayrollEmployee):
     payroll_attempts[employee_id] = payroll_attempts.get(employee_id, 0) + 1
     attempt = payroll_attempts[employee_id]
 
-    # Simulates a temporary failure that succeeds on retry
-    if employee_id == "WD-1002" and attempt == 1:
+        # Temporary failure, succeeds on retry
+    if employee_id == "WD-2005" and attempt == 1:
         raise Exception("503 Service Unavailable")
 
-    # Simulates a persistent failure
-    if employee_id == "WD-1003":
+    # Persistent retryable failure
+    if employee_id == "WD-2006":
         raise Exception("503 Service Unavailable")
 
-    # Bad request: do NOT retry
-    if employee_id == "WD-1004":
+    # Non-retryable bad request
+    if employee_id == "WD-2007":
         raise Exception("400 Bad Request")
 
     return True
@@ -148,15 +214,15 @@ def send_to_learning(employee: LearningUser):
     attempt = learning_attempts[employee_id]
 
     # Temporary failure, succeeds on retry
-    if employee_id == "WD-2002" and attempt == 1:
+    if employee_id == "WD-2005" and attempt == 1:
         raise Exception("503 Service Unavailable")
 
     # Persistent retryable failure
-    if employee_id == "WD-2003":
+    if employee_id == "WD-2006":
         raise Exception("503 Service Unavailable")
 
     # Non-retryable bad request
-    if employee_id == "WD-2004":
+    if employee_id == "WD-2007":
         raise Exception("400 Bad Request")
 
     return True
@@ -520,11 +586,9 @@ def send_to_toast(employee):
     return True
 
 
-
 # ------------------------------------------------------------------
 # ------------------ *** WORKDAY ENDPOINTS *** ---------------------
 # ------------------------------------------------------------------
-
 
 # PROCESS WORKDAY EMPLOYEE TRANSFER EVENT
 # ----------------------
@@ -561,7 +625,6 @@ def process_worker_transfer(event: WorkdayTransferEvent):
         "error": learning_result["error"],
         "latency_ms": learning_result["latency_ms"],
         "timestamp": datetime.utcnow().isoformat()
-
     }
 
     integration_log.append(learning_log_entry)
@@ -574,6 +637,20 @@ def process_worker_transfer(event: WorkdayTransferEvent):
         "learning_delivery": learning_result
     }
 
+@app.post("/workday/demo/run")
+def run_workday_demo():
+
+    results = []
+
+    for worker in workday_workers:
+
+        event = WorkdayTransferEvent(**worker)
+
+        result = process_worker_transfer(event)
+
+        results.append(result)
+
+    return results
 
 # VIEW WORKDAY INTEGRATION HISTORY
 # ----------------------
@@ -810,7 +887,7 @@ def migrate_employees(db: Session = Depends(get_db)):
 # PRE MIGRATE VALIDATION
 # ----------------------
 @app.get("/workstream/validation")
-def validate_migration():
+def validate_migration(db: Session = Depends(get_db)):
     results = []
 
     active_employees = [
@@ -820,7 +897,7 @@ def validate_migration():
     ]
 
     for employee in active_employees:
-        valid, error = validate_employee(employee)
+        valid, error = validate_employee(employee, db)
 
         duplicate = employee_exists_in_toast(employee)
 
@@ -829,7 +906,13 @@ def validate_migration():
             "name": f"{employee['first_name']} {employee['last_name']}",
             "valid": valid,
             "duplicate": duplicate,
-            "reason": error,
+            "reason": (
+                error
+                if not valid
+                else "Employee already exists in Toast"
+                if duplicate
+                else None
+            ),
         })
 
     return results
