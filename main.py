@@ -74,26 +74,26 @@ workday_workers = [
         "worker_id": "WD-2005",
         "first_name": "Retry",
         "last_name": "Success",
-        "old_department": "Marketing",
-        "new_department": "Engineering",
+        "old_department": "Account Executive",
+        "new_department": "Team Lead",
         "location": "Seattle",
         "manager_id": "WD-M1004"
     },
         {
         "worker_id": "WD-2006",
         "first_name": "Test",
-        "last_name": "Fail400",
-        "old_department": "Marketing",
-        "new_department": "Engineering",
+        "last_name": "Fail 400",
+        "old_department": "Engineering",
+        "new_department": "Sales Engineering",
         "location": "Seattle",
         "manager_id": "WD-M1004"
     },
         {
         "worker_id": "WD-2007",
         "first_name": "Test",
-        "last_name": "Fail500",
-        "old_department": "Marketing",
-        "new_department": "Engineering",
+        "last_name": "Fail 500",
+        "old_department": "Implementation",
+        "new_department": "Product",
         "location": "Seattle",
         "manager_id": "WD-M1004"
     },
@@ -146,9 +146,12 @@ class LearningUser(BaseModel):
 # WORKDAY/CANONICAL VALUES → PAYROLL VALUES
 # Using department in to form department code for payroll system
 PAYROLL_DEPARTMENT_MAP = {
-    "Engineering": "ENG",
     "Sales": "SAL",
-    "Marketing": "MKT",
+    "Team Lead": "TL",
+    "Sales Engineering": "FAIL",
+    "Product": "FAIL",
+    "Engineering": "ENG",
+    "Marketing": "MKT"
 }
 
 # TRANSFORM WORKDAY EVENT → CANONICAL WORKER CONTRACT
@@ -290,6 +293,9 @@ LEARNING_ROLE_MAP = {
     "Engineering": "Technical Learner",
     "Sales": "Sales Learner",
     "Marketing": "Marketing Learner",
+    "Team Lead": "Leadership Learner",
+    "Sales Engineering": "FAIL",
+    "Product": "FAIL"
 }
 
 # TRANSFORM CANONICAL WORKER → LEARNING CONTRACT
@@ -630,6 +636,7 @@ def process_worker_transfer(event: WorkdayTransferEvent):
     integration_log.append(learning_log_entry)
 
     return {
+        "event": event,
         "worker": worker,
         "payroll": payroll_employee,
         "payroll_delivery": payroll_result,
