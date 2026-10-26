@@ -14,6 +14,8 @@ from models import LocationMapping, PositionMapping, MigrationRun, MigrationResu
 from workday.data import workday_workers
 
 from workday.routes import router as workday_router
+from implementation_copilot.routes import router as copilot_router
+
 
 app = FastAPI(
     title="Integration Platform API",
@@ -34,7 +36,7 @@ app.add_middleware(
 
 app.include_router(workday_router)
 
-
+app.include_router(copilot_router)
 
 
 # ------------------------------------------------------------------
