@@ -22,6 +22,9 @@ class ImplementationUpdate(BaseModel):
     client_action_items: list[ActionItem]
     internal_action_items: list[ActionItem]
 
+    dependencies: list[str]
     blockers: list[str]
+    constraints: list[str]
+
     open_questions: list[str]
     next_steps: list[str]

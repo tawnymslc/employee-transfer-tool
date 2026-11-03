@@ -1,4 +1,5 @@
 from fastapi import APIRouter
+from .services import analyze_meeting
 from .schemas import MeetingAnalysisRequest, ImplementationUpdate
 
 router = APIRouter(
@@ -15,16 +16,5 @@ def copilot_status():
     }
 
 @router.post("/analyze-meeting", response_model=ImplementationUpdate)
-def analyze_meeting(request: MeetingAnalysisRequest):
-
-    return ImplementationUpdate(
-        customer=request.customer,
-        summary="Meeting analysis placeholder",
-        decisions=[],
-        technical_issues=[],
-        client_action_items=[],
-        internal_action_items=[],
-        blockers=[],
-        open_questions=[],
-        next_steps=[]
-    )
+def analyze_meeting_route(request: MeetingAnalysisRequest):
+    return analyze_meeting(request)
