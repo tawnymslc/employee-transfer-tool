@@ -7,6 +7,11 @@ from implementation_copilot.evals.scoring import (
     score_dependencies,
     score_constraints,
 )
+from implementation_copilot.evals.semantic_scoring import (
+    score_semantic_constraints,
+    score_semantic_dependencies,
+    score_semantic_action_ownership,
+)
 
 
 def run_evals():
@@ -14,6 +19,9 @@ def run_evals():
     ownership_results = []
     dependency_results = []
     constraint_results = []
+    semantic_constraint_results = []
+    semantic_dependency_results = []
+    semantic_action_results = []
 
     for scenario in SCENARIOS:
         print("\n" + "=" * 60)
@@ -66,6 +74,36 @@ def run_evals():
         constraint_results.append({
             "scenario": scenario["id"],
             **constraint_score,
+        })
+
+        semantic_constraint_score = score_semantic_constraints(
+            result=result,
+            expected=scenario["expected"],
+        )
+
+        semantic_constraint_results.append({
+            "scenario": scenario["id"],
+            **semantic_constraint_score,
+        })
+
+        semantic_dependency_score = score_semantic_dependencies(
+            result=result,
+            expected=scenario["expected"],
+        )
+
+        semantic_dependency_results.append({
+            "scenario": scenario["id"],
+            **semantic_dependency_score,
+        })
+
+        semantic_action_score = score_semantic_action_ownership(
+            result=result,
+            expected=scenario["expected"],
+        )
+
+        semantic_action_results.append({
+            "scenario": scenario["id"],
+            **semantic_action_score,
         })
 
         print("\nAI RESULT:")
@@ -252,6 +290,128 @@ def run_evals():
         f"{constraint_accuracy:.1f}%"
     )
 
+    print("\n" + "=" * 60)
+    print("SEMANTIC CONSTRAINT EVALUATION")
+    print("=" * 60)
+
+    total_expected = 0
+    total_matched = 0
+
+    for item in semantic_constraint_results:
+        matched = len(item["matched"])
+        missed = len(item["missed"])
+        total = matched + missed
+
+        if total == 0:
+            continue
+
+        total_expected += total
+        total_matched += matched
+
+        print(f"\n{item['scenario']}")
+        print(f"  Constraints: {matched}/{total}")
+
+        for missed_item in item["missed"]:
+            print(f"    MISSED: {missed_item}")
+
+    print("\nRESULTS")
+    print(f"Matched constraints: {total_matched}/{total_expected}")
+
+    accuracy = (
+        total_matched / total_expected
+        if total_expected
+        else 1.0
+    )
+
+    print(f"Semantic constraint accuracy: {accuracy:.1%}")
+
+    print("\n" + "=" * 60)
+    print("SEMANTIC DEPENDENCY EVALUATION")
+    print("=" * 60)
+
+    total_expected = 0
+    total_matched = 0
+
+    for item in semantic_dependency_results:
+        matched = len(item["matched"])
+        missed = len(item["missed"])
+        total = matched + missed
+
+        if total == 0:
+            continue
+
+        total_expected += total
+        total_matched += matched
+
+        print(f"\n{item['scenario']}")
+        print(f"  Dependencies: {matched}/{total}")
+
+        for missed_item in item["missed"]:
+            print(f"    MISSED: {missed_item}")
+
+    print("\nRESULTS")
+    print(f"Matched dependencies: {total_matched}/{total_expected}")
+
+    accuracy = (
+        total_matched / total_expected
+        if total_expected
+        else 1.0
+    )
+
+    print(f"Semantic dependency accuracy: {accuracy:.1%}")
+
+    print("\n" + "=" * 60)
+    print("SEMANTIC ACTION OWNERSHIP EVALUATION")
+    print("=" * 60)
+
+    total_expected = 0
+    total_matched = 0
+
+    for item in semantic_action_results:
+        client = item["client"]
+        internal = item["internal"]
+
+        client_total = len(client["matched"]) + len(client["missed"])
+        internal_total = len(internal["matched"]) + len(internal["missed"])
+
+        if client_total:
+            print(f"\n{item['scenario']}")
+            print(
+                f"  Client:   "
+                f"{len(client['matched'])}/{client_total}"
+            )
+
+            for missed_item in client["missed"]:
+                print(f"    MISSED: {missed_item}")
+
+        if internal_total:
+            if not client_total:
+                print(f"\n{item['scenario']}")
+
+            print(
+                f"  Internal: "
+                f"{len(internal['matched'])}/{internal_total}"
+            )
+
+            for missed_item in internal["missed"]:
+                print(f"    MISSED: {missed_item}")
+
+        total_expected += client_total + internal_total
+        total_matched += (
+            len(client["matched"])
+            + len(internal["matched"])
+        )
+
+    print("\nRESULTS")
+    print(f"Matched actions: {total_matched}/{total_expected}")
+
+    accuracy = (
+        total_matched / total_expected
+        if total_expected
+        else 1.0
+    )
+
+    print(f"Semantic action ownership accuracy: {accuracy:.1%}")
 
 if __name__ == "__main__":
     run_evals()
